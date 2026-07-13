@@ -3,6 +3,7 @@ import * as SQLite from "expo-sqlite";
 const db = SQLite.openDatabaseSync("accountvault.db");
 
 export const initLocalDB = () => {
+  // Create table with all columns from scratch
   db.execSync(`
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
@@ -16,9 +17,22 @@ export const initLocalDB = () => {
       is_active INTEGER DEFAULT 1,
       last_used_at TEXT,
       created_at TEXT NOT NULL,
-      synced INTEGER DEFAULT 0
+      synced INTEGER DEFAULT 0,
+      pending_delete INTEGER DEFAULT 0
     );
   `);
+
+  // Safely add columns if they don't exist yet
+  const addColumnSafe = (column: string, definition: string) => {
+    try {
+      db.execSync(`ALTER TABLE accounts ADD COLUMN ${column} ${definition}`);
+    } catch (e) {
+      // Column already exists — ignore
+    }
+  };
+
+  addColumnSafe("synced", "INTEGER DEFAULT 0");
+  addColumnSafe("pending_delete", "INTEGER DEFAULT 0");
 };
 
 export const saveAccountLocally = (account: {
@@ -34,11 +48,13 @@ export const saveAccountLocally = (account: {
   last_used_at?: string;
   created_at: string;
   synced?: number;
+  pending_delete?: number;
 }) => {
   db.runSync(
     `INSERT OR REPLACE INTO accounts 
-    (id, user_id, name, website_url, email_used, category, login_method, notes, is_active, last_used_at, created_at, synced)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, user_id, name, website_url, email_used, category, login_method, 
+     notes, is_active, last_used_at, created_at, synced, pending_delete)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       account.id,
       account.user_id,
@@ -52,12 +68,16 @@ export const saveAccountLocally = (account: {
       account.last_used_at || null,
       account.created_at,
       account.synced ?? 0,
+      account.pending_delete ?? 0,
     ],
   );
 };
 
-export const getAllLocalAccounts = () => {
-  const rows = db.getAllSync("SELECT * FROM accounts ORDER BY created_at DESC");
+export const getAllLocalAccounts = (userId: string) => {
+  const rows = db.getAllSync(
+    "SELECT * FROM accounts WHERE pending_delete = 0 AND user_id = ? ORDER BY created_at DESC",
+    [userId],
+  );
   return rows.map((row: any) => ({
     ...row,
     is_active: row.is_active === 1,
@@ -67,16 +87,36 @@ export const getAllLocalAccounts = () => {
   }));
 };
 
-export const getUnsyncedAccounts = () => {
-  return db.getAllSync("SELECT * FROM accounts WHERE synced = 0");
+export const getUnsyncedAccounts = (userId: string) => {
+  return db.getAllSync(
+    "SELECT * FROM accounts WHERE synced = 0 AND pending_delete = 0 AND user_id = ?",
+    [userId],
+  );
 };
 
+export const getPendingDeletes = (userId: string) => {
+  return db.getAllSync(
+    "SELECT * FROM accounts WHERE pending_delete = 1 AND user_id = ?",
+    [userId],
+  );
+};
 export const markAsSynced = (id: string) => {
   db.runSync("UPDATE accounts SET synced = 1 WHERE id = ?", [id]);
 };
 
+export const markForDeletion = (id: string) => {
+  db.runSync(
+    "UPDATE accounts SET pending_delete = 1, synced = 0 WHERE id = ?",
+    [id],
+  );
+};
+
 export const deleteAccountLocally = (id: string) => {
   db.runSync("DELETE FROM accounts WHERE id = ?", [id]);
+};
+
+export const clearLocalDataForUser = (userId: string) => {
+  db.runSync("DELETE FROM accounts WHERE user_id = ?", [userId]);
 };
 
 export const updateAccountLocally = (
@@ -88,4 +128,13 @@ export const updateAccountLocally = (
     .join(", ");
   const values = Object.values(updates);
   db.runSync(`UPDATE accounts SET ${fields} WHERE id = ?`, [...values, id]);
+};
+
+// Debug helper
+export const debugDB = (userId: string) => {
+  const all = db.getAllSync(
+    "SELECT id, name, synced, pending_delete FROM accounts WHERE user_id = ?",
+    [userId],
+  );
+  return all;
 };

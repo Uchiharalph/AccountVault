@@ -1,21 +1,21 @@
 import { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
+  ActivityIndicator,
   Alert,
   ScrollView,
-  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { supabase } from "../../lib/supabase";
-import { useAccountStore } from "../../stores/accountStore";
+import { PurchasesPackage } from "react-native-purchases";
 import {
+  checkProStatus,
   getPackages,
   purchasePackage,
-  checkProStatus,
 } from "../../lib/revenuecat";
-import { PurchasesPackage } from "react-native-purchases";
+import { supabase } from "../../lib/supabase";
+import { useAccountStore } from "../../stores/accountStore";
 
 export default function SettingsScreen() {
   const { accounts } = useAccountStore();
@@ -54,6 +54,11 @@ export default function SettingsScreen() {
         text: "Sign Out",
         style: "destructive",
         onPress: async () => {
+          const { clearLocalDataForUser } = require("../../lib/localdb");
+          const userId = await supabase.auth.getUser();
+          if (userId.data.user?.id) {
+            clearLocalDataForUser(userId.data.user.id);
+          }
           await supabase.auth.signOut();
         },
       },
@@ -67,7 +72,9 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Total accounts tracked</Text>
-          <Text style={styles.rowValue}>{accounts.length} / {isPro ? "∞" : "10"}</Text>
+          <Text style={styles.rowValue}>
+            {accounts.length} / {isPro ? "∞" : "10"}
+          </Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Plan</Text>
